@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fintech
+  labels:
+    environment: production
+    platform: fintech-core
+    managed-by: argocd
+    compliance-level: pci-dss
+    cost-center: engineering-platform
+    team: platform-team
+    monitoring-enabled: "true"
+    backup-enabled: "true"
+  annotations:
+    description: "Namespace principal para la plataforma de microservicios de fintech"
+    maintainer: "platform-team@fintech.company.com"
+    created-date: "2024-01-15T00:00:00Z"
+    last-modified: "2024-01-15T00:00:00Z"
+    environment-type: production
+    compliance-requirements: "pci-dss,sox"
+    backup-schedule: "daily-at-02:00-utc"
+    monitoring-datadog-integration: "enabled"
+    service-mesh: "istio"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: fintech-quota
+  namespace: fintech
+spec:
+  hard:
+    requests.cpu: "32"
+    requests.memory: 64Gi
+    limits.cpu: "64"
+    limits.memory: 128Gi
+    persistentvolumeclaims: "20"
+    services: "50"
+    secrets: "100"
+    configmaps: "50"
+    pods: "100"
+    replicationcontrollers: "20"
+    services.loadbalancers: "10"
+    services.nodeports: "5"
+  scopeSelector:
+    matchExpressions:
+      - operator: In
+        scopeName: PriorityClass
+        values: ["high", "critical"]
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: fintech-limits
+  namespace: fintech
+spec:
+  limits:
+    - max:
+        cpu: "8"
+        memory: 16Gi
+      min:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      type: Container
+    - max:
+        cpu: "16"
+        memory: 32Gi
+      min:
+        cpu: 100m
+        memory: 128Mi
+      type: Pod
+    - max:
+        storage: 50Gi
+      min:
+        storage: 1Gi
+      type: PersistentVolumeClaim
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fintech-namespace-config
+  namespace: fintech
+  labels:
+    app.kubernetes.io/managed-by: argocd
+data:
+  environment: "production"
+  platform: "fintech-core"
+  cluster-region: "us-east-1"
+  backup-retention-days: "30"
+  log-retention-days: "90"
+  enable-metrics: "true"
+  enable-tracing: "true"
+  service-timeout-seconds: "30"
+  health-check-interval-seconds: "10"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fintech-default-deny
+  namespace: fintech
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fintech-allow-ingress
+  namespace: fintech
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fintech-allow-egress-dns
+  namespace: fintech
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fintech-allow-egress-internal
+  namespace: fintech
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: fintech
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fintech-deployer
+  namespace: fintech
+  labels:
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    description: "ServiceAccount usado por ArgoCD para desplegar recursos en el namespace fintech"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fintech-deployer-role
+  namespace: fintech
+rules:
+  - apiGroups: ["", "apps", "networking.k8s.io", "autoscaling"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fintech-deployer-rolebinding
+  namespace: fintech
+subjects:
+  - kind: ServiceAccount
+    name: fintech-deployer
+    namespace: fintech
+roleRef:
+  kind: Role
+  name: fintech-deployer-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fintech-registry-credentials
+  namespace: fintech
+  labels:
+    app.kubernetes.io/managed-by: argocd
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6ImRvY2tlci1yZWdpc3RyeS5maW50ZWNoLmNvbSJ9

@@ -1,0 +1,170 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: fintech
+  namespace: argocd
+  labels:
+    environment: production
+    organization: fintech-platform
+    cost-center: engineering
+  annotations:
+    description: "Proyecto principal para la plataforma de microservicios de fintech"
+    owner: "plataforma-devops@fintech.com"
+    business-unit: "financial-services"
+spec:
+  description: |
+    Proyecto ArgoCD para gestionar el ciclo de vida de los microservicios
+    de la plataforma fintech. Incluye servicios de procesamiento de pagos,
+    gestión de cuentas, notificaciones y analytics. Este proyecto garantiza
+    separación de entornos y políticas de despliegue controladas.
+  sourceRepos:
+    - "https://github.com/fintech/platform-config.git"
+    - "https://github.com/fintech/microservices.git"
+    - "https://github.com/fintech/infrastructure.git"
+    - "https://github.com/fintech/monitoring.git"
+    - "git@github.com:fintech/platform-config.git"
+    - "git@github.com:fintech/microservices.git"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: fintech-dev
+      allowedNamespaces:
+        - fintech-dev
+    - server: https://kubernetes.default.svc
+      namespace: fintech-staging
+      allowedNamespaces:
+        - fintech-staging
+    - server: https://kubernetes.default.svc
+      namespace: fintech-prod
+      allowedNamespaces:
+        - fintech-prod
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+      allowedNamespaces:
+        - argocd
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+      allowedNamespaces:
+        - monitoring
+        - prometheus
+        - grafana
+    - server: https://kubernetes.default.svc
+      namespace: fintech-common
+      allowedNamespaces:
+        - fintech-common
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+  clusterResourceBlacklist:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: Pod
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: ReplicaSet
+    - group: apps
+      kind: StatefulSet
+    - group: apps
+      kind: DaemonSet
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: IngressClass
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: policy
+      kind: PodSecurityPolicy
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+    - group: monitoring.coreos.com
+      kind: PrometheusRule
+  namespaceResourceBlacklist:
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+  roles:
+    - name: admin
+      description: "Rol de administrador con permisos completos sobre el proyecto"
+      policies:
+        - p, proj:fintech:admin, applications, *, proj:fintech/*, allow
+        - p, proj:fintech:admin, applicationsets, *, proj:fintech/*, allow
+        - p, proj:fintech:admin, projects, proj:fintech, allow
+      groups:
+        - fintech-platform-admins
+        - platform-engineers
+    - name: developer
+      description: "Rol de desarrollador con permisos de lectura y despliegue"
+      policies:
+        - p, proj:fintech:developer, applications, get, proj:fintech/*, allow
+        - p, proj:fintech:developer, applications, sync, proj:fintech/*, allow
+        - p, proj:fintech:developer, applications, create, proj:fintech/*, allow
+        - p, proj:fintech:developer, applications, update, proj:fintech/*, allow
+        - p, proj:fintech:developer, applications, delete, proj:fintech/*, allow
+        - p, proj:fintech:developer, applicationsets, get, proj:fintech/*, allow
+        - p, proj:fintech:developer, applicationsets, create, proj:fintech/*, allow
+      groups:
+        - fintech-developers
+        - payments-team
+    - name: readonly
+      description: "Rol de solo lectura para auditoría y revisión"
+      policies:
+        - p, proj:fintech:readonly, applications, get, proj:fintech/*, allow
+        - p, proj:fintech:readonly, applicationsets, get, proj:fintech/*, allow
+        - p, proj:fintech:readonly, projects, get, proj:fintech, allow
+      groups:
+        - fintech-auditors
+        - qa-team
+  syncWindows:
+    - kind: allow
+      schedule: "0 8-18 * * 1-5"
+      duration: 10h
+      applications:
+        - "fintech-prod/*"
+      namespaces:
+        - fintech-prod
+    - kind: deny
+      schedule: "0 0 * * 0"
+      duration: 4h
+      applications:
+        - "fintech-prod/*"
+      namespaces:
+        - fintech-prod
+      reason: "Mantenimiento programado domingo"
+  signatureKeys:
+    keyID: ""
+  orbots:
+    - name: fintech-bot
+      token: ""
+      projects:
+        - fintech
+      policies:
+        - p, proj:fintech:bot, applications, *, proj:fintech/*, allow

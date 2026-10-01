@@ -1,0 +1,17 @@
+apiVersion: v2
+name: service-a
+description: Helm chart para el microservicio A de la plataforma fintech
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - fintech
+  - microservices
+  - kubernetes
+  - service-a
+maintainers:
+  - name: Platform Team
+    email: platform@fintech.example.com
+sources:
+  - https://github.com/fintech/microservices
+dependencies: []

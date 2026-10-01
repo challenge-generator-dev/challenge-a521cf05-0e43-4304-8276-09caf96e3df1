@@ -1,0 +1,141 @@
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "service-a.fullname" . }}
+  labels:
+    {{- include "service-a.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autoscaler
+    app.kubernetes.io/part-of: fintech-platform
+  annotations:
+    prometheus.io/apscale: "true"
+    {{- if .Values.autoscaling.annotations }}
+    {{- toYaml .Values.autoscaling.annotations | nindent 4 }}
+    {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "service-a.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas | default 10 }}
+  metrics:
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.customMetrics }}
+    {{- toYaml .Values.autoscaling.customMetrics | nindent 4 }}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.scaleDownStabilization | default 300 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.autoscaling.scaleDownPercent | default 10 }}
+          periodSeconds: 60
+        - type: Pods
+          value: {{ .Values.autoscaling.scaleDownPods | default 2 }}
+          periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.autoscaling.scaleUpStabilization | default 0 }}
+      policies:
+        - type: Percent
+          value: {{ .Values.autoscaling.scaleUpPercent | default 100 }}
+          periodSeconds: 15 }}
+        - type: Pods
+          value: {{ .Values.autoscaling.scaleUpPods | default 4 }}
+          periodSeconds: 15
+      selectPolicy: Max
+---
+# Horizontal Pod Autoscaler para escalamiento automático del microservicio
+# El HPA ajusta el número de réplicas del Deployment basándose en métricas
+# de CPU, memoria o métricas personalizadas configuradas.
+#
+# Configuración de escalamiento para soportar 5000 solicitudes por segundo
+# con tiempo de respuesta promedio de 200ms según los requisitos de la
+# plataforma fintech. Los valores por defecto permiten manejar picos de
+# tráfico mientras optimizan el uso de recursos durante períodos de baja
+# demanda.
+#
+# El comportamiento de scaleUp usa selectPolicy: Max para priorizar el
+# escalamiento rápido cuando hay alta demanda, mientras que scaleDown
+# usa selectPolicy: Min para evitar eliminaciones excesivas de pods
+# durante fluctuaciones breves de tráfico.
+#
+# La política de scaleDown incluye stabilizationWindowSeconds para
+# prevenir el efecto yo-yo (escalamiento rápido hacia arriba y abajo)
+# causado por métricas que fluctúan rápidamente.
+
+---
+{{- if .Values.autoscaling.vpaEnabled }}
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{ include "service-a.fullname" . }}-vpa
+  labels:
+    {{- include "service-a.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vertical-autoscaler
+    app.kubernetes.io/part-of: fintech-platform
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: Deployment
+    name: {{ include "service-a.fullname" . }}
+  updatePolicy:
+    updateMode: "{{ .Values.autoscaling.vpaUpdateMode | default "Auto" }}"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: {{ .Chart.Name }}
+        minAllowed:
+          memory: "{{ .Values.autoscaling.vpaMinMemory | default "256Mi" }}"
+          cpu: "{{ .Values.autoscaling.vpaMinCpu | default "100m" }}"
+        maxAllowed:
+          memory: "{{ .Values.autoscaling.vpaMaxMemory | default "4Gi" }}"
+          cpu: "{{ .Values.autoscaling.vpaMaxCpu | default "2000m" }}"
+        controlledResources: ["cpu", "memory"]
+{{- end }}
+---
+# Vertical Pod Autoscaler para ajuste automático de recursos por pod
+# El VPA ajusta las solicitudes y límites de CPU/memoria de cada pod
+# basándose en el uso histórico, optimizando la asignación de recursos.
+#
+# Esta configuración complementa el HPA cuando se requiere tanto
+# escalamiento horizontal (más pods) como vertical (mejores recursos
+# por pod). Es especialmente útil para cargas de trabajo donde el
+# consumo de recursos varía significativamente entre diferentes
+# períodos del día.
+#
+# El modo "Auto" aplica automáticamente las recomendaciones de VPA
+# con evictación de pods cuando es necesario. Para entornos de producción
+# con tolerancia cero a interrupciones, considerar el modo "Recreate".
+{{- end }}
+---
+# Configuración de métricas personalizadas para escalamiento basado en
+# solicitudes HTTP. Esta configuración adicional permite al HPA usar
+# métricas de la aplicación cuando las métricas de CPU/memoria no son
+# suficientes para capturar la carga real del servicio.
+#
+# Para habilitar esta funcionalidad, agregar en values.yaml:
+# autoscaling:
+#   customMetrics:
+#     - type: Pods
+#       pods:
+#         metric:
+#           name: http_requests_per_second
+#         target:
+#           type: AverageValue
+#           averageValue: "1000"

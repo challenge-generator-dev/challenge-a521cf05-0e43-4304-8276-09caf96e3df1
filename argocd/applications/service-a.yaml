@@ -1,0 +1,104 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: service-a
+  namespace: argocd
+  labels:
+    app: service-a
+    environment: production
+    tier: backend
+    managed-by: argocd
+  annotations:
+    description: "Microservicio principal de la plataforma fintech"
+    maintainer: "plataforma-devops@fintech.com"
+    revision-history-limit: "3"
+spec:
+  project: fintech
+  source:
+    - repoURL: https://github.com/fintech/platform-config.git
+      targetRevision: main
+      path: microservices/service-a
+      helm:
+        valueFiles:
+          - values.yaml
+        parameters:
+          - name: image.repository
+            value: fintechregistry.azurecr.io/service-a
+          - name: image.tag
+            value: v1.2.0
+          - name: replicaCount
+            value: "3"
+          - name: resources.limits.cpu
+            value: "2000m"
+          - name: resources.limits.memory
+            value: "2Gi"
+          - name: resources.requests.cpu
+            value: "500m"
+          - name: resources.requests.memory
+            value: "512Mi"
+          - name: autoscaling.enabled
+            value: "true"
+          - name: autoscaling.minReplicas
+            value: "3"
+          - name: autoscaling.maxReplicas
+            value: "10"
+          - name: autoscaling.targetCPUUtilizationPercentage
+            value: "70"
+          - name: service.type
+            value: ClusterIP
+          - name: service.port
+            value: "8080"
+          - name: service.targetPort
+            value: "8080"
+          - name: ingress.enabled
+            value: "true"
+          - name: ingress.hostname
+            value: api.fintech.internal
+          - name: ingress.className
+            value: nginx
+          - name: monitoring.enabled
+            value: "true"
+          - name: monitoring.prometheusScrape
+            value: "true"
+          - name: monitoring.prometheusPort
+            value: "9090"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fintech-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - Replace=false
+      - ServerSideApply=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Service
+      jsonPointers:
+        - /spec/clusterIP
+  revisionHistory:
+    limit: 10
+  info:
+    - name: architecture
+      value: microservices
+    - name: team
+      value: payments
+    - name: sla
+      value: "99.9%"
+    - name: scaling
+      value: horizontal-autoscaling
